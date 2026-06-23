@@ -94,8 +94,7 @@ def optimize_arima(series):
                 step += 1
                 prog_text.text(f"Optimizing Algorithm... Matrix {step}/{total_iters}")
                 try:
-                    # Enforce stationarity turned off to prevent math crashes during grid search
-                    tmp_model = ARIMA(series, order=(p_val, d_val, q_val), trend='t', enforce_stationarity=False, enforce_invertibility=False)
+                    tmp_model = ARIMA(series, order=(p_val, d_val, q_val), trend='t')
                     res = tmp_model.fit()
                     if res.aic < best_aic:
                         best_aic = res.aic
@@ -116,26 +115,16 @@ def convert_df_to_csv(df):
 # 4. EXECUTION PIPELINE
 # ==========================================
 if ticker:
-    with st.spinner(f"Pulling market matrices and simulating paths for {ticker}..."):
+    with st.spinner(f"Pulling market matrices and calculating risk bounds for {ticker}..."):
         raw_data = fetch_historical_data(ticker)
         
     if raw_data.empty:
         st.error(f"No market records found for '{ticker}'.")
     else:
-        # BULLETPROOF DATA PARSER: Safely extract 'Close' regardless of Yahoo Finance API updates
         if isinstance(raw_data.columns, pd.MultiIndex):
-            if 'Close' in raw_data.columns.get_level_values(0):
-                close_series = raw_data['Close']
-            else:
-                close_series = raw_data.xs('Close', axis=1, level=1)
-        else:
-            close_series = raw_data['Close']
+            raw_data.columns = raw_data.columns.get_level_values(0)
             
-        # Ensure it's a 1D Series
-        if isinstance(close_series, pd.DataFrame):
-            close_series = close_series.iloc[:, 0]
-            
-        historical_series = close_series.resample('W').mean().dropna()
+        historical_series = raw_data['Close'].resample('W').mean().dropna()
         sma_10 = historical_series.rolling(window=10).mean()
         sma_40 = historical_series.rolling(window=40).mean()
         weekly_returns = historical_series.pct_change().dropna() * 100
@@ -151,8 +140,8 @@ if ticker:
                 if mode == "⚡ Auto-Tune (Recommended)":
                     p, d, q = optimize_arima(historical_series)
                 
-                # Fit Final Model (Stationarity constraints removed to stop convergence crashes)
-                model = ARIMA(historical_series, order=(p, d, q), trend='t', enforce_stationarity=False, enforce_invertibility=False)
+                # Fit Model
+                model = ARIMA(historical_series, order=(p, d, q), trend='t')
                 fitted_model = model.fit()
                 
                 # Expected Mean Predictions
@@ -161,12 +150,12 @@ if ticker:
                 forecast_values = predictions.predicted_mean
                 forecast_values.index = forecast_index
 
-                # --- MONTE CARLO STOCHASTIC SIMULATIONS ---
+                # --- MONTE CARLO STOCHASTIC SIMULATIONS (Background Math) ---
                 np.random.seed(42) 
                 sims = fitted_model.simulate(nsimulations=delta_weeks, anchor='end', repetitions=num_simulations)
                 sims.index = forecast_index
-                sims.columns = [f"Path_{i+1}" for i in range(num_simulations)]
                 
+                # Dynamic Percentile Calculations
                 sim_upper = sims.quantile(0.95, axis=1)
                 sim_lower = sims.quantile(0.05, axis=1)
                 
@@ -189,42 +178,16 @@ if ticker:
                 
                 st.markdown("---")
                 
-                tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                    "🔮 Volatility Projection", 
+                # Adjusted Tabs
+                tab1, tab2, tab3, tab4 = st.tabs([
                     "📈 Moving Averages", 
                     "🧩 Trend Structure", 
                     "⚖️ Risk Distribution", 
                     "💾 Forecast Ledger"
                 ])
                 
+                # TAB 1: Moving Averages
                 with tab1:
-                    st.markdown(f'<div class="card"><h4 style="margin:0; color:#111827;">Stochastic Forward Projections ({num_simulations} Simulated Paths)</h4></div>', unsafe_allow_html=True)
-                    fig1 = go.Figure()
-                    
-                    fig1.add_trace(go.Scatter(
-                        x=forecast_index.tolist() + forecast_index[::-1].tolist(),
-                        y=sim_upper.tolist() + sim_lower[::-1].tolist(),
-                        fill='toself', fillcolor='rgba(17, 24, 39, 0.08)', line=dict(color='rgba(255,255,255,0)'),
-                        hoverinfo="skip", showlegend=True, name='Simulated 95% Bounds'
-                    ))
-                    
-                    fig1.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Historical Price", line=dict(color="#111111", width=2.5)))
-                    
-                    path_opacity = max(0.05, 1.5 / num_simulations)
-                    for col in sims.columns:
-                        fig1.add_trace(go.Scatter(
-                            x=sims.index, y=sims[col], 
-                            name=f"Simulated {col}", 
-                            line=dict(width=1, color=f"rgba(220, 38, 38, {path_opacity})"), 
-                            showlegend=False, hoverinfo="skip"
-                        ))
-                    
-                    fig1.add_trace(go.Scatter(x=forecast_values.index, y=forecast_values.values, name="Expected Mean (Smoothed)", line=dict(color="#111827", width=3, dash='dash')))
-                    
-                    fig1.update_layout(template="plotly_white", xaxis_title="Timeline Calendar", yaxis_title="Price (INR)", hovermode="x unified", height=550, margin=dict(t=15, b=15))
-                    st.plotly_chart(fig1, use_container_width=True)
-
-                with tab2:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Asset Momentum Analysis via Simple Moving Averages</h4></div>', unsafe_allow_html=True)
                     fig2 = go.Figure()
                     fig2.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Base Asset Price", line=dict(color="#e0e0e0", width=1.5)))
@@ -233,7 +196,8 @@ if ticker:
                     fig2.update_layout(template="plotly_white", xaxis_title="Timeline Calendar", yaxis_title="Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig2, use_container_width=True)
                 
-                with tab3:
+                # TAB 2: Trend Structure
+                with tab2:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Additive Time-Series Decomposition (52-Week Periodic Filter)</h4></div>', unsafe_allow_html=True)
                     try:
                         decomposition = seasonal_decompose(historical_series, model='additive', period=52)
@@ -246,14 +210,16 @@ if ticker:
                     except:
                         st.info("Insufficient historical tracking to execute 52-week seasonal decomposition.")
 
-                with tab4:
+                # TAB 3: Risk Distribution
+                with tab3:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Historical Volatility Architecture (Distribution Profile)</h4></div>', unsafe_allow_html=True)
                     fig4 = go.Figure(data=[go.Histogram(x=weekly_returns, nbinsx=60, marker_color="#374151", opacity=0.80)])
                     fig4.add_vline(x=0, line_dash="dash", line_color="#ef4444", annotation_text="Break-Even Threshold (0%)", annotation_position="top left")
                     fig4.update_layout(template="plotly_white", xaxis_title="Percentage Weekly Shift (%)", yaxis_title="Instance Frequency (Weeks)", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig4, use_container_width=True)
                     
-                with tab5:
+                # TAB 4: Forecast Ledger
+                with tab4:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Target Analytical Output Dataframe</h4></div>', unsafe_allow_html=True)
                     output_df = pd.DataFrame({
                         "Target Date": forecast_values.index.strftime('%Y-%m-%d'),
@@ -261,6 +227,7 @@ if ticker:
                         "Simulated Upper Bound (₹)": np.round(sim_upper.values, 2),
                         "Simulated Lower Bound (₹)": np.round(sim_lower.values, 2)
                     })
+                    # Set date as index to keep exports clean
                     output_df = output_df.set_index("Target Date")
                     
                     st.dataframe(output_df, use_container_width=True, height=400)
@@ -268,6 +235,5 @@ if ticker:
                     st.download_button(label="📥 Download Structured Forecast Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_quant_projections_2027.csv", mime="text/csv")
                     
             except Exception as core_err:
-                # Actual error is surfaced here instead of a generic message
-                st.error(f"Mathematical execution failed. Error Details: {str(core_err)}")
-                st.info("💡 Pro-Tip: Ensure the ticker symbol has active trading data on Yahoo Finance.")
+                st.error("Matrix conversion failed for this asset's specific variance structure.")
+                st.info("💡 Try reverting configuration to 'Manual Override' mode and apply parameters (1, 1, 1).")
