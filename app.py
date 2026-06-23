@@ -22,10 +22,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Refined CSS to prevent text-color clashing and "white box" bugs
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-        html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        
+        .stApp { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         
         .header-container {
             background: linear-gradient(135deg, #0f172a 0%, #3b82f6 100%);
@@ -40,13 +42,16 @@ st.markdown("""
             box-shadow: 0 4px 6px rgba(0,0,0,0.04); border-left: 5px solid #3b82f6;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
+        [data-testid="stMetric"] label, [data-testid="stMetric"] div { color: #0f172a !important; }
         [data-testid="stMetric"]:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0,0,0,0.08); }
         
-        .card { background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); border: 1px solid #e2e8f0; margin-bottom: 1rem; }
+        .card { background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); border: 1px solid #e2e8f0; margin-bottom: 1rem; color: #0f172a; }
         
         .stTabs [data-baseweb="tab-list"] { gap: 10px; }
         .stTabs [data-baseweb="tab"] { background-color: #ffffff; border-radius: 8px 8px 0 0; padding: 12px 24px; box-shadow: 0 -2px 5px rgba(0,0,0,0.02); border: 1px solid #e2e8f0; border-bottom: none; }
-        .stTabs [aria-selected="true"] { background-color: #0f172a; color: white !important; font-weight: 600;}
+        .stTabs [data-baseweb="tab"] div { color: #0f172a; }
+        .stTabs [aria-selected="true"] { background-color: #0f172a; border-color: #0f172a; }
+        .stTabs [aria-selected="true"] div { color: white !important; font-weight: 600; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -124,7 +129,7 @@ def optimize_arima(series):
 
 @st.cache_data
 def convert_df_to_csv(df):
-    return df.to_csv(index=True).encode('utf-8')
+    return df.to_csv(index=False).encode('utf-8')
 
 # ==========================================
 # 4. MAIN EXECUTION PIPELINE
@@ -152,8 +157,8 @@ if ticker:
                 if mode == "⚡ Auto-Tune (Recommended)":
                     p, d, q = optimize_arima(historical_series)
                 
-                # --- NEW: BACKTESTING FOR ACCURACY SCORE ---
-                train_size = int(len(historical_series) * 0.90) # Test on last 10%
+                # 2. Backtesting for Accuracy Score
+                train_size = int(len(historical_series) * 0.90)
                 train, test = historical_series.iloc[:train_size], historical_series.iloc[train_size:]
                 try:
                     val_model = ARIMA(train, order=(p,d,q), trend='t', enforce_stationarity=False, enforce_invertibility=False)
@@ -164,11 +169,11 @@ if ticker:
                 except:
                     accuracy_score = 0
                 
-                # 2. Main Model Fitting
+                # 3. Main Model Fitting
                 model = ARIMA(historical_series, order=(p, d, q), trend='t', enforce_stationarity=False, enforce_invertibility=False)
                 fitted_model = model.fit()
                 
-                # 3. Base Projections & Capped Confidence Bounds
+                # 4. Base Projections & Capped Confidence Bounds
                 predictions = fitted_model.get_forecast(steps=delta_weeks)
                 forecast_index = pd.date_range(start=last_date + pd.Timedelta(weeks=1), periods=delta_weeks, freq='W-FRI')
                 
@@ -177,7 +182,6 @@ if ticker:
                 
                 conf_int = predictions.conf_int(alpha=0.05) 
                 upper_bound = conf_int.iloc[:, 1]
-                # Cap lower bound at 0 to prevent mathematically impossible negative stock prices
                 lower_bound = conf_int.iloc[:, 0].clip(lower=0) 
                 
                 # Top-Level KPI Calculations
@@ -190,18 +194,17 @@ if ticker:
                 # ==========================================
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
-                    st.metric("Current Evaluation", f"₹{current_price:.2f}", f"As of {last_date.strftime('%d %b %Y')}")
+                    st.metric("Current Evaluation", f"₹{current_price:,.2f}", f"As of {last_date.strftime('%d %b %Y')}")
                 with m2:
-                    st.metric("Target Projection (2027)", f"₹{future_price:.2f}", f"{growth_pct:+.2f}% Expected Return")
+                    st.metric("Target Projection (2027)", f"₹{future_price:,.2f}", f"{growth_pct:+.2f}% Expected Return")
                 with m3:
                     st.metric("Macro Trend (40W SMA)", "Bullish 📈" if current_price > sma_40.iloc[-1] else "Bearish 📉", "Technical Indicator")
                 with m4:
                     st.metric("Historical Accuracy Score", f"{accuracy_score:.1f}%", "Based on hold-out backtest", delta_color="normal")
                 
-                # --- NEW: AUTOMATED PLAIN ENGLISH EXECUTIVE SUMMARY ---
                 trend_status = "an upward bullish" if current_price > sma_40.iloc[-1] else "a downward bearish"
                 growth_dir = "grow" if growth_pct > 0 else "decline"
-                st.info(f"**💡 AI Executive Summary:** Based on backtested data, {ticker} is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach **₹{future_price:.2f}** by June 2027.")
+                st.info(f"**💡 AI Executive Summary:** Based on backtested data, {ticker} is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach **₹{future_price:,.2f}** by June 2027.")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -213,7 +216,7 @@ if ticker:
                 ])
                 
                 with tab1:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Primary Trajectory & 95% Confidence Bounds</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0;">Primary Trajectory & 95% Confidence Bounds</h4></div>', unsafe_allow_html=True)
                     fig1 = go.Figure()
                     
                     fig1.add_trace(go.Scatter(
@@ -230,7 +233,7 @@ if ticker:
                     st.plotly_chart(fig1, use_container_width=True)
 
                 with tab2:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Momentum via Simple Moving Averages</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0;">Momentum via Simple Moving Averages</h4></div>', unsafe_allow_html=True)
                     fig2 = go.Figure()
                     fig2.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Asset Price", line=dict(color="#cbd5e1", width=1.5)))
                     fig2.add_trace(go.Scatter(x=sma_10.index, y=sma_10.values, name="10-Week SMA (Fast)", line=dict(color="#10b981", width=2)))
@@ -239,7 +242,7 @@ if ticker:
                     st.plotly_chart(fig2, use_container_width=True)
                 
                 with tab3:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Time-Series Decomposition (52-Week Filter)</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0;">Time-Series Decomposition (52-Week Filter)</h4></div>', unsafe_allow_html=True)
                     try:
                         decomposition = seasonal_decompose(historical_series, model='additive', period=52)
                         fig3 = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06, subplot_titles=("Underlying Macro Trend", "Annual Cyclical Seasonality", "Unsystematic Random Noise"))
@@ -251,28 +254,42 @@ if ticker:
                     except Exception:
                         st.info("Insufficient historical tracking length to execute a full 52-week seasonal decomposition.")
 
+                # TAB 4: NEW PLOTLY TABLE DATA LEDGER (Fixes the White Box Bug)
                 with tab4:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Target Analytical Dataframe</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0;">Target Analytical Dataframe</h4></div>', unsafe_allow_html=True)
+                    
                     output_df = pd.DataFrame({
                         "Target Date": forecast_values.index,
                         "Expected Target": forecast_values.values,
                         "Optimistic Bound": upper_bound.values,
                         "Pessimistic Bound": lower_bound.values
-                    }).set_index("Target Date")
+                    })
                     
-                    # --- NEW: BEAUTIFUL DATAFRAME CONFIGURATION ---
-                    st.dataframe(
-                        output_df,
-                        column_config={
-                            "Target Date": st.column_config.DateColumn("Date", format="MMM DD, YYYY"),
-                            "Expected Target": st.column_config.NumberColumn("Expected Price (₹)", format="₹%.2f"),
-                            "Optimistic Bound": st.column_config.NumberColumn("High Risk Cap (₹)", format="₹%.2f"),
-                            "Pessimistic Bound": st.column_config.NumberColumn("Low Risk Floor (₹)", format="₹%.2f")
-                        },
-                        use_container_width=True,
-                        height=400
-                    )
+                    # Plotly Table ensures perfect readability regardless of Streamlit theme
+                    fig_table = go.Figure(data=[go.Table(
+                        header=dict(
+                            values=["<b>Target Date</b>", "<b>Expected Price</b>", "<b>High Risk Cap</b>", "<b>Low Risk Floor</b>"],
+                            fill_color='#0f172a',
+                            align='center',
+                            font=dict(color='white', size=14)
+                        ),
+                        cells=dict(
+                            values=[
+                                output_df["Target Date"].dt.strftime('%b %d, %Y'),
+                                output_df["Expected Target"].apply(lambda x: f"₹{x:,.2f}"),
+                                output_df["Optimistic Bound"].apply(lambda x: f"₹{x:,.2f}"),
+                                output_df["Pessimistic Bound"].apply(lambda x: f"₹{x:,.2f}")
+                            ],
+                            fill_color='#f8fafc',
+                            align='center',
+                            font=dict(color='#0f172a', size=13),
+                            height=30
+                        )
+                    )])
+                    fig_table.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=400)
+                    st.plotly_chart(fig_table, use_container_width=True)
                     
+                    # Ensure CSV downloads cleanly without HTML formatting
                     csv_bytes = convert_df_to_csv(output_df)
                     st.download_button(label="📥 Download Formatted Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_deterministic_forecast_2027.csv", mime="text/csv")
                     
