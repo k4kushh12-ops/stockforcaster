@@ -9,39 +9,40 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 from datetime import datetime
 import warnings
 
+# Suppress statistical warnings
 warnings.filterwarnings("ignore")
 
 # ==========================================
 # 1. PAGE CONFIGURATION
 # ==========================================
 st.set_page_config(
-    page_title="Advanced NSE Forecaster Pro",
-    page_icon="📊",
+    page_title="Advanced Quant Forecaster",
+    page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 st.markdown("""
     <style>
-        .main { background-color: #f4f7f6; font-family: 'Inter', 'Segoe UI', sans-serif; }
+        .main { background-color: #f0f2f5; font-family: 'Inter', 'Segoe UI', sans-serif; }
         .header-container {
-            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            background: linear-gradient(135deg, #111827 0%, #374151 100%);
             padding: 2.5rem; border-radius: 12px; color: white; margin-bottom: 2rem;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
         }
-        .header-title { font-size: 2.6rem; font-weight: 800; margin: 0; letter-spacing: -0.5px; }
-        .header-subtitle { font-size: 1.1rem; opacity: 0.95; margin-top: 0.5rem; }
-        .card { background: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); border: 1px solid #e0e6ed; margin-bottom: 1rem; }
+        .header-title { font-size: 2.6rem; font-weight: 800; margin: 0; letter-spacing: -0.5px; color: #f9fafb; }
+        .header-subtitle { font-size: 1.1rem; opacity: 0.85; margin-top: 0.5rem; color: #9ca3af; }
+        .card { background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); border: 1px solid #e5e7eb; margin-bottom: 1rem; }
         .stTabs [data-baseweb="tab-list"] { gap: 8px; }
         .stTabs [data-baseweb="tab"] { background-color: #ffffff; border-radius: 6px 6px 0 0; padding: 10px 20px; box-shadow: 0 -2px 5px rgba(0,0,0,0.02); }
-        .stTabs [aria-selected="true"] { background-color: #203a43; color: white !important; font-weight: 600;}
+        .stTabs [aria-selected="true"] { background-color: #111827; color: white !important; font-weight: 600;}
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
     <div class="header-container">
-        <div class="header-title">📊 Advanced NSE Market Forecaster Pro</div>
-        <div class="header-subtitle">Stochastic Monte Carlo simulations, trend drift, and volatile forward projections.</div>
+        <div class="header-title">🧬 Institutional Quant Forecaster</div>
+        <div class="header-subtitle">Stochastic Monte Carlo Risk Analysis, Probability Matrices, and Volatility Adjusted Projections.</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -55,6 +56,10 @@ with st.sidebar:
     if not ticker.endswith(".NS"):
         ticker = f"{ticker}.NS"
         
+    st.markdown("---")
+    st.markdown("### 🎲 Monte Carlo Settings")
+    num_simulations = st.slider("Number of Simulation Paths", min_value=5, max_value=100, value=25, help="More paths provide higher accuracy but require more computing power.")
+    
     st.markdown("---")
     st.markdown("### 🧠 Forecasting Engine")
     mode = st.radio("Optimization Mode:", ["⚡ Auto-Tune (Recommended)", "🎛️ Manual Override"])
@@ -110,7 +115,7 @@ def convert_df_to_csv(df):
 # 4. EXECUTION PIPELINE
 # ==========================================
 if ticker:
-    with st.spinner(f"Pulling market matrices for {ticker}..."):
+    with st.spinner(f"Pulling market matrices and simulating paths for {ticker}..."):
         raw_data = fetch_historical_data(ticker)
         
     if raw_data.empty:
@@ -139,41 +144,42 @@ if ticker:
                 model = ARIMA(historical_series, order=(p, d, q), trend='t')
                 fitted_model = model.fit()
                 
-                # Mean Predictions & Confidence Intervals
+                # Expected Mean Predictions
                 predictions = fitted_model.get_forecast(steps=delta_weeks)
                 forecast_index = pd.date_range(start=last_date + pd.Timedelta(weeks=1), periods=delta_weeks, freq='W')
                 forecast_values = predictions.predicted_mean
                 forecast_values.index = forecast_index
-                
-                conf_int = predictions.conf_int(alpha=0.05)
-                lower_bound, upper_bound = conf_int.iloc[:, 0], conf_int.iloc[:, 1]
 
-                # --- NEW: MONTE CARLO STOCHASTIC SIMULATIONS ---
-                # Generate 5 random future paths based on historical volatility
-                np.random.seed(42) # Keeps paths stable on refresh
-                simulated_paths = []
-                # Simulate using the model's exact mathematical parameters
-                sims = fitted_model.simulate(nsimulations=delta_weeks, anchor='end', repetitions=5)
+                # --- MONTE CARLO STOCHASTIC SIMULATIONS ---
+                np.random.seed(42) # Keeps base paths stable on refresh
+                sims = fitted_model.simulate(nsimulations=delta_weeks, anchor='end', repetitions=num_simulations)
                 sims.index = forecast_index
                 
+                # Dynamic Percentile Calculations based strictly on simulated volatility
+                sim_upper = sims.quantile(0.95, axis=1)
+                sim_lower = sims.quantile(0.05, axis=1)
+                
+                # Probability Analysis
                 current_price = historical_series.iloc[-1]
                 future_price = forecast_values.iloc[-1]
-                growth_pct = ((future_price - current_price) / current_price) * 100
+                ending_values = sims.iloc[-1]
+                probability_of_profit = (ending_values > current_price).mean() * 100
                 
+                # Metrics Panel
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
                     st.metric("Current Asset Value", f"₹{current_price:.2f}")
                 with m2:
-                    st.metric("Expected Mean (June 2027)", f"₹{future_price:.2f}", f"{growth_pct:+.2f}%")
+                    st.metric("Expected Mean (June 2027)", f"₹{future_price:.2f}")
                 with m3:
-                    st.metric("Macro Trend (40W)", "Bullish 📈" if current_price > sma_40.iloc[-1] else "Bearish 📉")
+                    st.metric("Probability of Profit", f"{probability_of_profit:.1f}%", "Chance to beat current price")
                 with m4:
-                    st.metric("Active Architecture", f"ARIMA({p},{d},{q}) + Drift", f"AIC: {fitted_model.aic:.1f}", delta_color="off")
+                    st.metric("Expected Shortfall (Worst 5%)", f"₹{sim_lower.iloc[-1]:.2f}", "95% Confidence floor", delta_color="inverse")
                 
                 st.markdown("---")
                 
                 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                    "🔮 Volatility Adjusted Forecast", 
+                    "🔮 Monte Carlo Matrix", 
                     "📈 Moving Averages", 
                     "🧩 Trend Structure", 
                     "⚖️ Risk Distribution", 
@@ -182,75 +188,78 @@ if ticker:
                 
                 # TAB 1: Volatility Adjusted Plot
                 with tab1:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#203a43;">Stochastic Forward Projections (Monte Carlo)</h4></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="card"><h4 style="margin:0; color:#111827;">Stochastic Forward Projections ({num_simulations} Simulated Paths)</h4></div>', unsafe_allow_html=True)
                     fig1 = go.Figure()
                     
-                    # 95% Confidence Shadow
+                    # Simulated 95% Confidence Shadow
                     fig1.add_trace(go.Scatter(
                         x=forecast_index.tolist() + forecast_index[::-1].tolist(),
-                        y=upper_bound.tolist() + lower_bound[::-1].tolist(),
-                        fill='toself', fillcolor='rgba(32, 58, 67, 0.1)', line=dict(color='rgba(255,255,255,0)'),
-                        hoverinfo="skip", showlegend=True, name='95% Extreme Bounds'
+                        y=sim_upper.tolist() + sim_lower[::-1].tolist(),
+                        fill='toself', fillcolor='rgba(17, 24, 39, 0.08)', line=dict(color='rgba(255,255,255,0)'),
+                        hoverinfo="skip", showlegend=True, name='Simulated 95% Bounds'
                     ))
                     
                     # Historical Line
                     fig1.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Historical Price", line=dict(color="#111111", width=2.5)))
                     
-                    # Simulated Paths (The "Wiggly" lines that prove the market isn't flat)
+                    # Dynamic path opacity based on slider selection
+                    path_opacity = max(0.05, 1.5 / num_simulations)
+                    
+                    # Simulated Paths
                     for i, col in enumerate(sims.columns):
                         fig1.add_trace(go.Scatter(
                             x=sims.index, y=sims[col], 
                             name=f"Simulated Path {i+1}", 
-                            line=dict(width=1, color=f"rgba(230, 92, 0, 0.4)"), 
-                            showlegend=False
+                            line=dict(width=1, color=f"rgba(220, 38, 38, {path_opacity})"), 
+                            showlegend=False, hoverinfo="skip"
                         ))
                     
                     # Expected Mean (The smoothed center line)
-                    fig1.add_trace(go.Scatter(x=forecast_values.index, y=forecast_values.values, name="Expected Mean (Smoothed)", line=dict(color="#203a43", width=3, dash='dash')))
+                    fig1.add_trace(go.Scatter(x=forecast_values.index, y=forecast_values.values, name="Expected Mean (Smoothed)", line=dict(color="#111827", width=3, dash='dash')))
                     
-                    fig1.update_layout(template="plotly_white", xaxis_title="Timeline Calendar", yaxis_title="Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
+                    fig1.update_layout(template="plotly_white", xaxis_title="Timeline Calendar", yaxis_title="Price (INR)", hovermode="x unified", height=550, margin=dict(t=15, b=15))
                     st.plotly_chart(fig1, use_container_width=True)
                 
                 with tab2:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#203a43;">Asset Momentum Analysis via Simple Moving Averages</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Asset Momentum Analysis via Simple Moving Averages</h4></div>', unsafe_allow_html=True)
                     fig2 = go.Figure()
                     fig2.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Base Asset Price", line=dict(color="#e0e0e0", width=1.5)))
-                    fig2.add_trace(go.Scatter(x=sma_10.index, y=sma_10.values, name="10-Week Fast SMA", line=dict(color="#00C853", width=2)))
-                    fig2.add_trace(go.Scatter(x=sma_40.index, y=sma_40.values, name="40-Week Slow Macro SMA", line=dict(color="#D50000", width=2)))
+                    fig2.add_trace(go.Scatter(x=sma_10.index, y=sma_10.values, name="10-Week Fast SMA", line=dict(color="#10b981", width=2)))
+                    fig2.add_trace(go.Scatter(x=sma_40.index, y=sma_40.values, name="40-Week Slow Macro SMA", line=dict(color="#ef4444", width=2)))
                     fig2.update_layout(template="plotly_white", xaxis_title="Timeline Calendar", yaxis_title="Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig2, use_container_width=True)
                 
                 with tab3:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#203a43;">Additive Time-Series Decomposition (52-Week Periodic Filter)</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Additive Time-Series Decomposition (52-Week Periodic Filter)</h4></div>', unsafe_allow_html=True)
                     try:
                         decomposition = seasonal_decompose(historical_series, model='additive', period=52)
                         fig3 = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06, subplot_titles=("Macro Trend Line", "Annual Cyclical Seasonality", "Unsystematic Random Market Residuals"))
-                        fig3.add_trace(go.Scatter(x=decomposition.trend.index, y=decomposition.trend, line=dict(color="#2980b9", width=2)), row=1, col=1)
-                        fig3.add_trace(go.Scatter(x=decomposition.seasonal.index, y=decomposition.seasonal, line=dict(color="#27ae60", width=1.5)), row=2, col=1)
-                        fig3.add_trace(go.Bar(x=decomposition.resid.index, y=decomposition.resid, marker_color="#c0392b"), row=3, col=1)
+                        fig3.add_trace(go.Scatter(x=decomposition.trend.index, y=decomposition.trend, line=dict(color="#3b82f6", width=2)), row=1, col=1)
+                        fig3.add_trace(go.Scatter(x=decomposition.seasonal.index, y=decomposition.seasonal, line=dict(color="#10b981", width=1.5)), row=2, col=1)
+                        fig3.add_trace(go.Bar(x=decomposition.resid.index, y=decomposition.resid, marker_color="#ef4444"), row=3, col=1)
                         fig3.update_layout(template="plotly_white", height=650, showlegend=False, margin=dict(t=40, b=15))
                         st.plotly_chart(fig3, use_container_width=True)
                     except:
                         st.info("Insufficient historical tracking to execute 52-week seasonal decomposition.")
 
                 with tab4:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#203a43;">Historical Volatility Architecture (Distribution Profile)</h4></div>', unsafe_allow_html=True)
-                    fig4 = go.Figure(data=[go.Histogram(x=weekly_returns, nbinsx=60, marker_color="#203a43", opacity=0.80)])
-                    fig4.add_vline(x=0, line_dash="dash", line_color="#D50000", annotation_text="Break-Even Threshold (0%)", annotation_position="top left")
+                    st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Historical Volatility Architecture (Distribution Profile)</h4></div>', unsafe_allow_html=True)
+                    fig4 = go.Figure(data=[go.Histogram(x=weekly_returns, nbinsx=60, marker_color="#374151", opacity=0.80)])
+                    fig4.add_vline(x=0, line_dash="dash", line_color="#ef4444", annotation_text="Break-Even Threshold (0%)", annotation_position="top left")
                     fig4.update_layout(template="plotly_white", xaxis_title="Percentage Weekly Shift (%)", yaxis_title="Instance Frequency (Weeks)", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig4, use_container_width=True)
                     
                 with tab5:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#203a43;">Target Analytical Output Dataframe</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Target Analytical Output Dataframe</h4></div>', unsafe_allow_html=True)
                     output_df = pd.DataFrame({
                         "Target Date": forecast_values.index.strftime('%Y-%m-%d'),
                         "Expected Mean (₹)": np.round(forecast_values.values, 2),
-                        "Upper Boundary Risk (₹)": np.round(upper_bound.values, 2),
-                        "Lower Boundary Risk (₹)": np.round(lower_bound.values, 2)
+                        "Simulated Upper Bound (₹)": np.round(sim_upper.values, 2),
+                        "Simulated Lower Bound (₹)": np.round(sim_lower.values, 2)
                     }).reset_index(drop=True)
                     st.dataframe(output_df, use_container_width=True, height=400)
                     csv_bytes = convert_df_to_csv(output_df)
-                    st.download_button(label="📥 Download Structured Forecast Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_advanced_projections_2027.csv", mime="text/csv")
+                    st.download_button(label="📥 Download Structured Forecast Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_quant_projections_2027.csv", mime="text/csv")
                     
             except Exception as core_err:
                 st.error("Matrix conversion failed for this asset's specific variance structure.")
