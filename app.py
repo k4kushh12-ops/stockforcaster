@@ -181,10 +181,9 @@ if ticker:
                 
                 st.markdown("---")
                 
-                # Adjusted Tabs to include the raw Monte Carlo Data Matrix
-                tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+                # Adjusted Tabs (Removed Raw Matrix)
+                tab1, tab2, tab3, tab4, tab5 = st.tabs([
                     "🔮 Volatility Projection", 
-                    "🔢 Monte Carlo Matrix",
                     "📈 Moving Averages", 
                     "🧩 Trend Structure", 
                     "⚖️ Risk Distribution", 
@@ -224,29 +223,8 @@ if ticker:
                     
                     fig1.update_layout(template="plotly_white", xaxis_title="Timeline Calendar", yaxis_title="Price (INR)", hovermode="x unified", height=550, margin=dict(t=15, b=15))
                     st.plotly_chart(fig1, use_container_width=True)
-                
-                # TAB 2: RAW MONTE CARLO MATRIX
-                with tab2:
-                    st.markdown(f'<div class="card"><h4 style="margin:0; color:#111827;">Raw Monte Carlo Matrix ({num_simulations} Paths)</h4></div>', unsafe_allow_html=True)
-                    st.write("This matrix displays the exact calculated price points for every simulated alternate reality. Each column represents a unique stochastic path projected into the future based on historical variance.")
-                    
-                    # Format index for clean display
-                    sims_display = sims.copy()
-                    sims_display.index = sims_display.index.strftime('%Y-%m-%d')
-                    
-                    # Display the full matrix
-                    st.dataframe(sims_display, use_container_width=True, height=450)
-                    
-                    # Dedicated Matrix Download
-                    matrix_csv = convert_df_to_csv(sims_display)
-                    st.download_button(
-                        label="📥 Download Full Simulation Matrix (.csv)", 
-                        data=matrix_csv, 
-                        file_name=f"{ticker}_monte_carlo_matrix_{num_simulations}_paths.csv", 
-                        mime="text/csv"
-                    )
 
-                with tab3:
+                with tab2:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Asset Momentum Analysis via Simple Moving Averages</h4></div>', unsafe_allow_html=True)
                     fig2 = go.Figure()
                     fig2.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Base Asset Price", line=dict(color="#e0e0e0", width=1.5)))
@@ -255,7 +233,7 @@ if ticker:
                     fig2.update_layout(template="plotly_white", xaxis_title="Timeline Calendar", yaxis_title="Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig2, use_container_width=True)
                 
-                with tab4:
+                with tab3:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Additive Time-Series Decomposition (52-Week Periodic Filter)</h4></div>', unsafe_allow_html=True)
                     try:
                         decomposition = seasonal_decompose(historical_series, model='additive', period=52)
@@ -268,14 +246,14 @@ if ticker:
                     except:
                         st.info("Insufficient historical tracking to execute 52-week seasonal decomposition.")
 
-                with tab5:
+                with tab4:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Historical Volatility Architecture (Distribution Profile)</h4></div>', unsafe_allow_html=True)
                     fig4 = go.Figure(data=[go.Histogram(x=weekly_returns, nbinsx=60, marker_color="#374151", opacity=0.80)])
                     fig4.add_vline(x=0, line_dash="dash", line_color="#ef4444", annotation_text="Break-Even Threshold (0%)", annotation_position="top left")
                     fig4.update_layout(template="plotly_white", xaxis_title="Percentage Weekly Shift (%)", yaxis_title="Instance Frequency (Weeks)", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig4, use_container_width=True)
                     
-                with tab6:
+                with tab5:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#111827;">Target Analytical Output Dataframe</h4></div>', unsafe_allow_html=True)
                     output_df = pd.DataFrame({
                         "Target Date": forecast_values.index.strftime('%Y-%m-%d'),
