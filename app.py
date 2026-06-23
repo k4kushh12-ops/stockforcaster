@@ -70,19 +70,17 @@ def fetch_historical_data(symbol):
     df = yf.download(symbol, start=start_date, end=end_date)
     return df
 
-# Fast, bounded grid-search to prevent Streamlit Cloud from freezing
+# Fast, bounded grid-search that includes trend drift to prevent flatlining
 def optimize_arima(series):
     best_aic = float("inf")
-    best_order = (1, 1, 1) # Safe fallback for financial data
+    best_order = (1, 1, 1) 
     
-    # Financial data is almost always d=1. We limit p and q to prevent exponential lag.
     p_values = [0, 1, 2]
     d_values = [1] 
     q_values = [0, 1, 2]
     
     total_iterations = len(p_values) * len(d_values) * len(q_values)
     
-    # UI Elements for Progress
     progress_text = st.empty()
     progress_bar = st.progress(0)
     
@@ -93,7 +91,8 @@ def optimize_arima(series):
                 current_step += 1
                 progress_text.text(f"Scanning math parameters... {current_step}/{total_iterations}")
                 try:
-                    tmp_model = ARIMA(series, order=(p_val, d_val, q_val))
+                    # Added trend='t' to force the model to capture long-term slope
+                    tmp_model = ARIMA(series, order=(p_val, d_val, q_val), trend='t')
                     res = tmp_model.fit()
                     if res.aic < best_aic:
                         best_aic = res.aic
@@ -101,10 +100,8 @@ def optimize_arima(series):
                 except Exception:
                     continue
                 
-                # Update progress bar
                 progress_bar.progress(current_step / total_iterations)
                 
-    # Clear UI elements once done
     progress_text.empty()
     progress_bar.empty()
     
@@ -118,11 +115,9 @@ if ticker:
     if raw_data.empty:
         st.error(f"No data discovered for ticker '{ticker}'. Please ensure the ticker code is valid on Yahoo Finance.")
     else:
-        # Standardize formatting for newer versions of yfinance
         if isinstance(raw_data.columns, pd.MultiIndex):
             raw_data.columns = raw_data.columns.get_level_values(0)
             
-        # Resample to weekly closing prices (Reduces noise and speeds up math)
         historical_series = raw_data['Close'].resample('W').mean().dropna()
         
         last_date = historical_series.index[-1]
@@ -134,18 +129,23 @@ if ticker:
             st.warning("The target forecasting date (June 2027) has already passed.")
         else:
             try:
-                # Automated Hyperparameter Routing
                 if mode == "⚡ Fast Auto-Tuning (Recommended)":
                     p, d, q = optimize_arima(historical_series)
                 
-                # Final Execution
-                model = ARIMA(historical_series, order=(p, d, q))
+                # Fit final model with trend='t' to prevent flatlines
+                model = ARIMA(historical_series, order=(p, d, q), trend='t')
                 fitted_model = model.fit()
                 
+                # Extract Predictions and 95% Confidence Intervals
                 predictions = fitted_model.get_forecast(steps=delta_weeks)
                 forecast_index = pd.date_range(start=last_date + pd.Timedelta(weeks=1), periods=delta_weeks, freq='W')
+                
                 forecast_values = predictions.predicted_mean
                 forecast_values.index = forecast_index
+                
+                conf_int = predictions.conf_int(alpha=0.05) # 95% Confidence Interval
+                lower_bound = conf_int.iloc[:, 0]
+                upper_bound = conf_int.iloc[:, 1]
                 
                 # Metric Cards Display
                 m1, m2, m3 = st.columns(3)
@@ -154,7 +154,7 @@ if ticker:
                 with m2:
                     st.metric("June 2027 Projected Price", f"₹{forecast_values.iloc[-1]:.2f}")
                 with m3:
-                    st.metric("Model Configuration Used", f"ARIMA({p}, {d}, {q})", f"AIC: {fitted_model.aic:.1f}", delta_color="off")
+                    st.metric("Model Configuration Used", f"ARIMA({p}, {d}, {q}) + Drift", f"AIC: {fitted_model.aic:.1f}", delta_color="off")
                 
                 st.markdown("---")
                 
@@ -162,14 +162,28 @@ if ticker:
                 chart_col, table_col = st.columns([2, 1])
                 
                 with chart_col:
-                    st.markdown('<div class="card"><h4 style="margin:0; color:#1f4037;">📊 Forecast Visualization</h4></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="card"><h4 style="margin:0; color:#1f4037;">📊 Forecast & Confidence Interval</h4></div>', unsafe_allow_html=True)
                     fig = go.Figure()
                     
+                    # 1. Shaded Confidence Interval
+                    fig.add_trace(go.Scatter(
+                        x=forecast_index.tolist() + forecast_index[::-1].tolist(),
+                        y=upper_bound.tolist() + lower_bound[::-1].tolist(),
+                        fill='toself',
+                        fillcolor='rgba(230, 92, 0, 0.15)',
+                        line=dict(color='rgba(255,255,255,0)'),
+                        hoverinfo="skip",
+                        showlegend=True,
+                        name='95% Confidence Range'
+                    ))
+                    
+                    # 2. Historical Data Line
                     fig.add_trace(go.Scatter(
                         x=historical_series.index, y=historical_series.values,
                         name="Historical Data", line=dict(color="#1f4037", width=2)
                     ))
                     
+                    # 3. Forecast Line (Now with drift, no more flatline)
                     fig.add_trace(go.Scatter(
                         x=forecast_values.index, y=forecast_values.values,
                         name="Forward Projection", line=dict(color="#e65c00", width=2.5, dash='dash')
@@ -190,7 +204,9 @@ if ticker:
                     
                     output_df = pd.DataFrame({
                         "Date Target": forecast_values.index.strftime('%Y-%m-%d'),
-                        "Forecast Value (₹)": np.round(forecast_values.values, 2)
+                        "Expected (₹)": np.round(forecast_values.values, 2),
+                        "Low Range (₹)": np.round(lower_bound.values, 2),
+                        "High Range (₹)": np.round(upper_bound.values, 2)
                     }).reset_index(drop=True)
                     
                     st.dataframe(output_df, use_container_width=True, height=420)
