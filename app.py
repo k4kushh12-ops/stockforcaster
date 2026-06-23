@@ -9,7 +9,7 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 from datetime import datetime
 import warnings
 
-# Suppress backend warnings for a pristine execution
+# Suppress backend warnings
 warnings.filterwarnings("ignore")
 
 # ==========================================
@@ -22,68 +22,31 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for a visually stunning, high-end dashboard UI
 st.markdown("""
     <style>
-        /* Import premium font */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         
-        html, body, [class*="css"] {
-            font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
-        }
-        
-        /* Stunning Gradient Header */
         .header-container {
             background: linear-gradient(135deg, #0f172a 0%, #3b82f6 100%);
-            padding: 3rem; 
-            border-radius: 16px; 
-            color: white; 
-            margin-bottom: 2rem;
+            padding: 3rem; border-radius: 16px; color: white; margin-bottom: 2rem;
             box-shadow: 0 10px 30px rgba(59, 130, 246, 0.25);
         }
         .header-title { font-size: 2.8rem; font-weight: 800; margin: 0; letter-spacing: -1px; }
         .header-subtitle { font-size: 1.1rem; font-weight: 400; opacity: 0.9; margin-top: 0.5rem; }
         
-        /* Elevated Metric Cards */
         [data-testid="stMetric"] {
-            background-color: #ffffff;
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.04);
-            border-left: 5px solid #3b82f6;
+            background-color: #ffffff; padding: 1.5rem; border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.04); border-left: 5px solid #3b82f6;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
-        [data-testid="stMetric"]:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 15px rgba(0,0,0,0.08);
-        }
+        [data-testid="stMetric"]:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0,0,0,0.08); }
         
-        /* Chart Card Containers */
-        .card { 
-            background: white; 
-            padding: 1.5rem; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
-            border: 1px solid #e2e8f0; 
-            margin-bottom: 1rem; 
-        }
+        .card { background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); border: 1px solid #e2e8f0; margin-bottom: 1rem; }
         
-        /* Styled Tabs */
         .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-        .stTabs [data-baseweb="tab"] { 
-            background-color: #ffffff; 
-            border-radius: 8px 8px 0 0; 
-            padding: 12px 24px; 
-            box-shadow: 0 -2px 5px rgba(0,0,0,0.02);
-            border: 1px solid #e2e8f0;
-            border-bottom: none;
-        }
-        .stTabs [aria-selected="true"] { 
-            background-color: #0f172a; 
-            color: white !important; 
-            font-weight: 600;
-        }
+        .stTabs [data-baseweb="tab"] { background-color: #ffffff; border-radius: 8px 8px 0 0; padding: 12px 24px; box-shadow: 0 -2px 5px rgba(0,0,0,0.02); border: 1px solid #e2e8f0; border-bottom: none; }
+        .stTabs [aria-selected="true"] { background-color: #0f172a; color: white !important; font-weight: 600;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -146,10 +109,7 @@ def optimize_arima(series):
                 step += 1
                 prog_text.text(f"Scanning algorithms... {step}/{total_iters}")
                 try:
-                    tmp_model = ARIMA(
-                        series, order=(p_val, d_val, q_val), trend='t', 
-                        enforce_stationarity=False, enforce_invertibility=False
-                    )
+                    tmp_model = ARIMA(series, order=(p_val, d_val, q_val), trend='t', enforce_stationarity=False, enforce_invertibility=False)
                     res = tmp_model.fit()
                     if res.aic < best_aic:
                         best_aic = res.aic
@@ -170,14 +130,13 @@ def convert_df_to_csv(df):
 # 4. MAIN EXECUTION PIPELINE
 # ==========================================
 if ticker:
-    with st.spinner(f"Establishing secure connection for {ticker}..."):
+    with st.spinner(f"Establishing secure connection & backtesting models for {ticker}..."):
         close_series = fetch_historical_data(ticker)
         
     if close_series.empty:
         st.error(f"Failed to retrieve data for '{ticker}'. Please verify the symbol is active on Yahoo Finance.")
     else:
         historical_series = close_series.resample('W-FRI').mean().dropna()
-        
         sma_10 = historical_series.rolling(window=10).mean()
         sma_40 = historical_series.rolling(window=40).mean()
         
@@ -193,22 +152,33 @@ if ticker:
                 if mode == "⚡ Auto-Tune (Recommended)":
                     p, d, q = optimize_arima(historical_series)
                 
-                # 2. Model Fitting
-                model = ARIMA(
-                    historical_series, order=(p, d, q), trend='t', 
-                    enforce_stationarity=False, enforce_invertibility=False
-                )
+                # --- NEW: BACKTESTING FOR ACCURACY SCORE ---
+                train_size = int(len(historical_series) * 0.90) # Test on last 10%
+                train, test = historical_series.iloc[:train_size], historical_series.iloc[train_size:]
+                try:
+                    val_model = ARIMA(train, order=(p,d,q), trend='t', enforce_stationarity=False, enforce_invertibility=False)
+                    val_fit = val_model.fit()
+                    val_preds = val_fit.forecast(steps=len(test))
+                    mape = np.mean(np.abs((test - val_preds) / test)) * 100
+                    accuracy_score = max(0, 100 - mape)
+                except:
+                    accuracy_score = 0
+                
+                # 2. Main Model Fitting
+                model = ARIMA(historical_series, order=(p, d, q), trend='t', enforce_stationarity=False, enforce_invertibility=False)
                 fitted_model = model.fit()
                 
-                # 3. Base Projections & Mathematical Confidence Bounds
+                # 3. Base Projections & Capped Confidence Bounds
                 predictions = fitted_model.get_forecast(steps=delta_weeks)
                 forecast_index = pd.date_range(start=last_date + pd.Timedelta(weeks=1), periods=delta_weeks, freq='W-FRI')
                 
                 forecast_values = predictions.predicted_mean
                 forecast_values.index = forecast_index
                 
-                conf_int = predictions.conf_int(alpha=0.05) # 95% bounds
-                lower_bound, upper_bound = conf_int.iloc[:, 0], conf_int.iloc[:, 1]
+                conf_int = predictions.conf_int(alpha=0.05) 
+                upper_bound = conf_int.iloc[:, 1]
+                # Cap lower bound at 0 to prevent mathematically impossible negative stock prices
+                lower_bound = conf_int.iloc[:, 0].clip(lower=0) 
                 
                 # Top-Level KPI Calculations
                 current_price = historical_series.iloc[-1]
@@ -226,7 +196,12 @@ if ticker:
                 with m3:
                     st.metric("Macro Trend (40W SMA)", "Bullish 📈" if current_price > sma_40.iloc[-1] else "Bearish 📉", "Technical Indicator")
                 with m4:
-                    st.metric("Model Architecture", f"ARIMA({p},{d},{q})", f"AIC: {fitted_model.aic:.1f}", delta_color="off")
+                    st.metric("Historical Accuracy Score", f"{accuracy_score:.1f}%", "Based on hold-out backtest", delta_color="normal")
+                
+                # --- NEW: AUTOMATED PLAIN ENGLISH EXECUTIVE SUMMARY ---
+                trend_status = "an upward bullish" if current_price > sma_40.iloc[-1] else "a downward bearish"
+                growth_dir = "grow" if growth_pct > 0 else "decline"
+                st.info(f"**💡 AI Executive Summary:** Based on backtested data, {ticker} is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach **₹{future_price:.2f}** by June 2027.")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -237,12 +212,10 @@ if ticker:
                     "💾 Data Ledger"
                 ])
                 
-                # TAB 1: Main Forecast
                 with tab1:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Primary Trajectory & 95% Confidence Bounds</h4></div>', unsafe_allow_html=True)
                     fig1 = go.Figure()
                     
-                    # Mathematical Shaded Bounds
                     fig1.add_trace(go.Scatter(
                         x=forecast_index.tolist() + forecast_index[::-1].tolist(),
                         y=upper_bound.tolist() + lower_bound[::-1].tolist(),
@@ -250,16 +223,12 @@ if ticker:
                         hoverinfo="skip", showlegend=True, name='95% Confidence Interval'
                     ))
                     
-                    # Historical Data
                     fig1.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Actual Price", line=dict(color="#0f172a", width=2.5)))
-                    
-                    # Forecasted Line
                     fig1.add_trace(go.Scatter(x=forecast_values.index, y=forecast_values.values, name="Expected Baseline", line=dict(color="#3b82f6", width=3, dash='dash')))
                     
                     fig1.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title="Asset Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig1, use_container_width=True)
 
-                # TAB 2: Technicals
                 with tab2:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Momentum via Simple Moving Averages</h4></div>', unsafe_allow_html=True)
                     fig2 = go.Figure()
@@ -269,7 +238,6 @@ if ticker:
                     fig2.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title="Asset Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig2, use_container_width=True)
                 
-                # TAB 3: Seasonality
                 with tab3:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Time-Series Decomposition (52-Week Filter)</h4></div>', unsafe_allow_html=True)
                     try:
@@ -283,19 +251,30 @@ if ticker:
                     except Exception:
                         st.info("Insufficient historical tracking length to execute a full 52-week seasonal decomposition.")
 
-                # TAB 4: Output Ledger
                 with tab4:
                     st.markdown('<div class="card"><h4 style="margin:0; color:#0f172a;">Target Analytical Dataframe</h4></div>', unsafe_allow_html=True)
                     output_df = pd.DataFrame({
-                        "Target Date": forecast_values.index.strftime('%Y-%m-%d'),
-                        "Expected Target (₹)": np.round(forecast_values.values, 2),
-                        "Optimistic Upper Bound (₹)": np.round(upper_bound.values, 2),
-                        "Pessimistic Lower Bound (₹)": np.round(lower_bound.values, 2)
+                        "Target Date": forecast_values.index,
+                        "Expected Target": forecast_values.values,
+                        "Optimistic Bound": upper_bound.values,
+                        "Pessimistic Bound": lower_bound.values
                     }).set_index("Target Date")
                     
-                    st.dataframe(output_df, use_container_width=True, height=400)
+                    # --- NEW: BEAUTIFUL DATAFRAME CONFIGURATION ---
+                    st.dataframe(
+                        output_df,
+                        column_config={
+                            "Target Date": st.column_config.DateColumn("Date", format="MMM DD, YYYY"),
+                            "Expected Target": st.column_config.NumberColumn("Expected Price (₹)", format="₹%.2f"),
+                            "Optimistic Bound": st.column_config.NumberColumn("High Risk Cap (₹)", format="₹%.2f"),
+                            "Pessimistic Bound": st.column_config.NumberColumn("Low Risk Floor (₹)", format="₹%.2f")
+                        },
+                        use_container_width=True,
+                        height=400
+                    )
+                    
                     csv_bytes = convert_df_to_csv(output_df)
-                    st.download_button(label="📥 Download Data Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_deterministic_forecast_2027.csv", mime="text/csv")
+                    st.download_button(label="📥 Download Formatted Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_deterministic_forecast_2027.csv", mime="text/csv")
                     
             except Exception as core_err:
                 st.error(f"Execution failed. System details: {str(core_err)}")
