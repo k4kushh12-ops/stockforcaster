@@ -63,16 +63,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. SIDEBAR CONFIGURATION
+# 2. GLOBAL ASSET CONFIGURATION & MAPPING
 # ==========================================
+STOCKS = {
+    "Reliance Industries (India)": "RELIANCE.NS",
+    "Tata Consultancy (India)": "TCS.NS",
+    "Apple (US)": "AAPL",
+    "Nvidia (US)": "NVDA",
+    "Toyota (Japan)": "7203.T",
+    "BMW (Germany)": "BMW.DE",
+    "AstraZeneca (UK)": "AZN.L",
+    "Shopify (Canada)": "SHOP.TO",
+    "--- Enter Custom Ticker ---": "CUSTOM"
+}
+
+CURRENCY_SYMBOLS = {
+    "USD": "$",   # US Dollar
+    "INR": "₹",   # Indian Rupee
+    "EUR": "€",   # Euro
+    "JPY": "¥",   # Japanese Yen
+    "GBP": "£",   # British Pound
+    "CAD": "C$",  # Canadian Dollar
+    "AUD": "A$"   # Australian Dollar
+}
+
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2942/2942269.png", width=60)
     st.header("⚙️ Target Asset")
-    ticker_input = st.text_input("Enter NSE Ticker Symbol:", value="RELIANCE")
     
-    ticker = ticker_input.strip().upper()
-    if ticker and not ticker.endswith(".NS"):
-        ticker = f"{ticker}.NS"
+    selected_stock = st.selectbox("Select Global Asset:", list(STOCKS.keys()))
+    
+    if selected_stock == "--- Enter Custom Ticker ---":
+        ticker_input = st.text_input("Enter Yahoo Finance Ticker:", value="MSFT")
+        ticker = ticker_input.strip().upper()
+    else:
+        ticker = STOCKS[selected_stock]
         
     st.markdown("---")
     st.markdown("### 🧠 Forecasting Engine")
@@ -97,6 +122,15 @@ def fetch_historical_data(symbol):
         return df['Close']
     except Exception:
         return pd.Series()
+
+@st.cache_data(ttl=3600)
+def fetch_currency_info(symbol):
+    """Fetches the currency code to dynamically update the UI symbols."""
+    try:
+        tkr = yf.Ticker(symbol)
+        return tkr.info.get('currency', 'USD')
+    except Exception:
+        return 'USD' # Fallback
 
 def optimize_arima(series):
     best_aic = float("inf")
@@ -137,6 +171,9 @@ def convert_df_to_csv(df):
 if ticker:
     with st.spinner(f"Establishing secure connection & backtesting models for {ticker}..."):
         close_series = fetch_historical_data(ticker)
+        # Fetch dynamic currency string and symbol mapping
+        currency_code = fetch_currency_info(ticker)
+        curr_sym = CURRENCY_SYMBOLS.get(currency_code, f"{currency_code} ")
         
     if close_series.empty:
         st.error(f"Failed to retrieve data for '{ticker}'. Please verify the symbol is active on Yahoo Finance.")
@@ -190,13 +227,13 @@ if ticker:
                 growth_pct = ((future_price - current_price) / current_price) * 100
                 
                 # ==========================================
-                # 5. DASHBOARD UI RENDER
+                # 5. DASHBOARD UI RENDER (Updated with curr_sym)
                 # ==========================================
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
-                    st.metric("Current Evaluation", f"₹{current_price:,.2f}", f"As of {last_date.strftime('%d %b %Y')}")
+                    st.metric("Current Evaluation", f"{curr_sym}{current_price:,.2f}", f"As of {last_date.strftime('%d %b %Y')}")
                 with m2:
-                    st.metric("Target Projection (2027)", f"₹{future_price:,.2f}", f"{growth_pct:+.2f}% Expected Return")
+                    st.metric("Target Projection (2027)", f"{curr_sym}{future_price:,.2f}", f"{growth_pct:+.2f}% Expected Return")
                 with m3:
                     st.metric("Macro Trend (40W SMA)", "Bullish 📈" if current_price > sma_40.iloc[-1] else "Bearish 📉", "Technical Indicator")
                 with m4:
@@ -204,7 +241,7 @@ if ticker:
                 
                 trend_status = "an upward bullish" if current_price > sma_40.iloc[-1] else "a downward bearish"
                 growth_dir = "grow" if growth_pct > 0 else "decline"
-                st.info(f"**💡 AI Executive Summary:** Based on backtested data, {ticker} is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach **₹{future_price:,.2f}** by June 2027.")
+                st.info(f"**💡 AI Executive Summary:** Based on backtested data, {ticker} is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach **{curr_sym}{future_price:,.2f}** by June 2027.")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -229,7 +266,8 @@ if ticker:
                     fig1.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Actual Price", line=dict(color="#0f172a", width=2.5)))
                     fig1.add_trace(go.Scatter(x=forecast_values.index, y=forecast_values.values, name="Expected Baseline", line=dict(color="#3b82f6", width=3, dash='dash')))
                     
-                    fig1.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title="Asset Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
+                    # Updated yaxis_title to use dynamic currency code
+                    fig1.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title=f"Asset Price ({currency_code})", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig1, use_container_width=True)
 
                 with tab2:
@@ -238,7 +276,8 @@ if ticker:
                     fig2.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Asset Price", line=dict(color="#cbd5e1", width=1.5)))
                     fig2.add_trace(go.Scatter(x=sma_10.index, y=sma_10.values, name="10-Week SMA (Fast)", line=dict(color="#10b981", width=2)))
                     fig2.add_trace(go.Scatter(x=sma_40.index, y=sma_40.values, name="40-Week SMA (Macro)", line=dict(color="#ef4444", width=2)))
-                    fig2.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title="Asset Price (INR)", hovermode="x unified", height=500, margin=dict(t=15, b=15))
+                    # Updated yaxis_title
+                    fig2.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title=f"Asset Price ({currency_code})", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig2, use_container_width=True)
                 
                 with tab3:
@@ -254,7 +293,7 @@ if ticker:
                     except Exception:
                         st.info("Insufficient historical tracking length to execute a full 52-week seasonal decomposition.")
 
-                # TAB 4: NEW PLOTLY TABLE DATA LEDGER (Fixes the White Box Bug)
+                # TAB 4: NEW PLOTLY TABLE DATA LEDGER
                 with tab4:
                     st.markdown('<div class="card"><h4 style="margin:0;">Target Analytical Dataframe</h4></div>', unsafe_allow_html=True)
                     
@@ -268,7 +307,7 @@ if ticker:
                     # Plotly Table ensures perfect readability regardless of Streamlit theme
                     fig_table = go.Figure(data=[go.Table(
                         header=dict(
-                            values=["<b>Target Date</b>", "<b>Expected Price</b>", "<b>High Risk Cap</b>", "<b>Low Risk Floor</b>"],
+                            values=["<b>Target Date</b>", f"<b>Expected Price ({currency_code})</b>", "<b>High Risk Cap</b>", "<b>Low Risk Floor</b>"],
                             fill_color='#0f172a',
                             align='center',
                             font=dict(color='white', size=14)
@@ -276,9 +315,10 @@ if ticker:
                         cells=dict(
                             values=[
                                 output_df["Target Date"].dt.strftime('%b %d, %Y'),
-                                output_df["Expected Target"].apply(lambda x: f"₹{x:,.2f}"),
-                                output_df["Optimistic Bound"].apply(lambda x: f"₹{x:,.2f}"),
-                                output_df["Pessimistic Bound"].apply(lambda x: f"₹{x:,.2f}")
+                                # Applied the dynamic curr_sym to lambda formats
+                                output_df["Expected Target"].apply(lambda x: f"{curr_sym}{x:,.2f}"),
+                                output_df["Optimistic Bound"].apply(lambda x: f"{curr_sym}{x:,.2f}"),
+                                output_df["Pessimistic Bound"].apply(lambda x: f"{curr_sym}{x:,.2f}")
                             ],
                             fill_color='#f8fafc',
                             align='center',
