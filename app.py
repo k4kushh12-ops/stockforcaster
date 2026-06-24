@@ -64,13 +64,14 @@ st.markdown("""
 # ==========================================
 # 2. MASTER GLOBAL CURRENCY REGISTRY
 # ==========================================
+# Comprehensive mapping dictionary providing both symbol and full currency name
 GLOBAL_CURRENCY_REGISTRY = {
     "USD": {"symbol": "$", "name": "US Dollar"},
     "INR": {"symbol": "₹", "name": "Indian Rupee"},
     "EUR": {"symbol": "€", "name": "Euro"},
     "JPY": {"symbol": "¥", "name": "Japanese Yen"},
     "GBP": {"symbol": "£", "name": "British Pound"},
-    "GBP": {"symbol": "p", "name": "British Pence"}, 
+    "GBP": {"symbol": "p", "name": "British Pence"}, # Handles UK stocks quoted in pence
     "CAD": {"symbol": "C$", "name": "Canadian Dollar"},
     "AUD": {"symbol": "A$", "name": "Australian Dollar"},
     "CHF": {"symbol": "CHF ", "name": "Swiss Franc"},
@@ -129,6 +130,10 @@ def fetch_historical_data(symbol):
 
 @st.cache_data(ttl=3600)
 def fetch_currency_metadata(symbol):
+    """
+    Extracts the native financial currency metadata dynamically from Yahoo Finance 
+    and matches it against the master currency registry.
+    """
     try:
         tkr = yf.Ticker(symbol)
         info = tkr.info
@@ -137,6 +142,7 @@ def fetch_currency_metadata(symbol):
         if code in GLOBAL_CURRENCY_REGISTRY:
             return code, GLOBAL_CURRENCY_REGISTRY[code]["symbol"], GLOBAL_CURRENCY_REGISTRY[code]["name"]
         else:
+            # Dynamic fallback fallback if an unmapped custom currency code appears
             return code, f"{code} ", f"Local Currency ({code})"
     except Exception:
         return 'USD', '$', 'US Dollar'
@@ -157,8 +163,7 @@ def optimize_arima(series):
                 step += 1
                 prog_text.text(f"Scanning algorithms... {step}/{total_iters}")
                 try:
-                    # FIX: Changed trend='t' to trend='c' to prevent horizontal flat-lining
-                    tmp_model = ARIMA(series, order=(p_val, d_val, q_val), trend='c', enforce_stationarity=False, enforce_invertibility=False)
+                    tmp_model = ARIMA(series, order=(p_val, d_val, q_val), trend='t', enforce_stationarity=False, enforce_invertibility=False)
                     res = tmp_model.fit()
                     if res.aic < best_aic:
                         best_aic = res.aic
@@ -181,6 +186,8 @@ def convert_df_to_csv(df):
 if ticker:
     with st.spinner(f"Establishing connection & extracting global currency metrics for {ticker}..."):
         close_series = fetch_historical_data(ticker)
+        
+        # Pull accurate native data strings instantly
         currency_code, curr_sym, currency_name = fetch_currency_metadata(ticker)
         
     if close_series.empty:
@@ -206,8 +213,7 @@ if ticker:
                 train_size = int(len(historical_series) * 0.90)
                 train, test = historical_series.iloc[:train_size], historical_series.iloc[train_size:]
                 try:
-                    # FIX: Changed trend='t' to trend='c'
-                    val_model = ARIMA(train, order=(p,d,q), trend='c', enforce_stationarity=False, enforce_invertibility=False)
+                    val_model = ARIMA(train, order=(p,d,q), trend='t', enforce_stationarity=False, enforce_invertibility=False)
                     val_fit = val_model.fit()
                     val_preds = val_fit.forecast(steps=len(test))
                     mape = np.mean(np.abs((test - val_preds) / test)) * 100
@@ -216,8 +222,7 @@ if ticker:
                     accuracy_score = 0
                 
                 # 3. Main Model Fitting
-                # FIX: Changed trend='t' to trend='c' for the main model as well
-                model = ARIMA(historical_series, order=(p, d, q), trend='c', enforce_stationarity=False, enforce_invertibility=False)
+                model = ARIMA(historical_series, order=(p, d, q), trend='t', enforce_stationarity=False, enforce_invertibility=False)
                 fitted_model = model.fit()
                 
                 # 4. Base Projections & Confidence Bounds
@@ -231,18 +236,13 @@ if ticker:
                 upper_bound = conf_int.iloc[:, 1]
                 lower_bound = conf_int.iloc[:, 0].clip(lower=0) 
                 
-                # NEW FEATURE: Generate a realistic Stochastic Market Path based on the ARIMA variance
-                np.random.seed(len(ticker) + int(historical_series.iloc[-1])) # Unique but stable seed per stock
-                random_shocks = np.random.normal(0, fitted_model.resid.std(), delta_weeks)
-                simulated_wobble = forecast_values + np.cumsum(random_shocks)
-
                 # Calculations
                 current_price = historical_series.iloc[-1]
                 future_price = forecast_values.iloc[-1]
                 growth_pct = ((future_price - current_price) / current_price) * 100
                 
                 # ==========================================
-                # 6. DASHBOARD UI RENDER 
+                # 6. DASHBOARD UI RENDER (Fully Dynamic)
                 # ==========================================
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
@@ -257,7 +257,7 @@ if ticker:
                 trend_status = "an upward bullish" if current_price > sma_40.iloc[-1] else "a downward bearish"
                 growth_dir = "grow" if growth_pct > 0 else "decline"
                 
-                st.info(f"**💡 AI Executive Summary:** Based on backtested data, **{ticker}** is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach a final expected baseline of **{curr_sym}{future_price:,.2f} {currency_name}** by June 2027.")
+                st.info(f"**💡 AI Executive Summary:** Based on backtested data, **{ticker}** is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach a final price of **{curr_sym}{future_price:,.2f} {currency_name}** by June 2027.")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -272,7 +272,6 @@ if ticker:
                     st.markdown('<div class="card"><h4 style="margin:0;">Primary Trajectory & 95% Confidence Bounds</h4></div>', unsafe_allow_html=True)
                     fig1 = go.Figure()
                     
-                    # 95% Confidence Interval Area
                     fig1.add_trace(go.Scatter(
                         x=forecast_index.tolist() + forecast_index[::-1].tolist(),
                         y=upper_bound.tolist() + lower_bound[::-1].tolist(),
@@ -280,13 +279,7 @@ if ticker:
                         hoverinfo="skip", showlegend=True, name='95% Confidence Interval'
                     ))
                     
-                    # Historical Data
                     fig1.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Actual Price", line=dict(color="#0f172a", width=2.5)))
-                    
-                    # NEW: Simulated Market Volatility Path
-                    fig1.add_trace(go.Scatter(x=forecast_values.index, y=simulated_wobble.values, name="Simulated Volatility", line=dict(color="#10b981", width=1.5)))
-                    
-                    # Expected Baseline (Mean)
                     fig1.add_trace(go.Scatter(x=forecast_values.index, y=forecast_values.values, name="Expected Baseline", line=dict(color="#3b82f6", width=3, dash='dash')))
                     
                     fig1.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title=f"Asset Price ({currency_name})", hovermode="x unified", height=500, margin=dict(t=15, b=15))
