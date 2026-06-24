@@ -16,13 +16,12 @@ warnings.filterwarnings("ignore")
 # 1. PAGE CONFIGURATION & PREMIUM CSS
 # ==========================================
 st.set_page_config(
-    page_title="Pro Forecaster",
-    page_icon="📈",
+    page_title="Global Pro Forecaster",
+    page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Refined CSS to prevent text-color clashing and "white box" bugs
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
@@ -57,47 +56,44 @@ st.markdown("""
 
 st.markdown("""
     <div class="header-container">
-        <div class="header-title">📈 Predictive Market Analytics</div>
-        <div class="header-subtitle">Algorithmic ARIMA Modeling, Trend Decomposition, and Precision Forecasting.</div>
+        <div class="header-title">🌍 Global Market Analytics</div>
+        <div class="header-subtitle">Unrestricted Algorithmic ARIMA Modeling and Precision Forecasting.</div>
     </div>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. GLOBAL ASSET CONFIGURATION & MAPPING
+# 2. GLOBAL CURRENCY DICTIONARY
 # ==========================================
-STOCKS = {
-    "Reliance Industries (India)": "RELIANCE.NS",
-    "Tata Consultancy (India)": "TCS.NS",
-    "Apple (US)": "AAPL",
-    "Nvidia (US)": "NVDA",
-    "Toyota (Japan)": "7203.T",
-    "BMW (Germany)": "BMW.DE",
-    "AstraZeneca (UK)": "AZN.L",
-    "Shopify (Canada)": "SHOP.TO",
-    "--- Enter Custom Ticker ---": "CUSTOM"
-}
-
+# An expanded list to handle global markets
 CURRENCY_SYMBOLS = {
-    "USD": "$",   # US Dollar
-    "INR": "₹",   # Indian Rupee
-    "EUR": "€",   # Euro
-    "JPY": "¥",   # Japanese Yen
-    "GBP": "£",   # British Pound
-    "CAD": "C$",  # Canadian Dollar
-    "AUD": "A$"   # Australian Dollar
+    "USD": "$",    # US Dollar
+    "INR": "₹",    # Indian Rupee
+    "EUR": "€",    # Euro
+    "JPY": "¥",    # Japanese Yen
+    "GBP": "£",    # British Pound
+    "CAD": "C$",   # Canadian Dollar
+    "AUD": "A$",   # Australian Dollar
+    "CHF": "CHF ", # Swiss Franc
+    "CNY": "¥",    # Chinese Yuan
+    "HKD": "HK$",  # Hong Kong Dollar
+    "SGD": "S$",   # Singapore Dollar
+    "KRW": "₩",    # South Korean Won
+    "BRL": "R$",   # Brazilian Real
+    "ZAR": "R "    # South African Rand
 }
 
+# ==========================================
+# 3. SIDEBAR CONFIGURATION
+# ==========================================
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2942/2942269.png", width=60)
     st.header("⚙️ Target Asset")
     
-    selected_stock = st.selectbox("Select Global Asset:", list(STOCKS.keys()))
-    
-    if selected_stock == "--- Enter Custom Ticker ---":
-        ticker_input = st.text_input("Enter Yahoo Finance Ticker:", value="MSFT")
-        ticker = ticker_input.strip().upper()
-    else:
-        ticker = STOCKS[selected_stock]
+    # UNRESTRICTED INPUT: Users type whatever they want
+    st.markdown("**Enter any Yahoo Finance Ticker:**")
+    st.caption("Examples: AAPL (US), RELIANCE.NS (India), BMW.DE (Germany), 7203.T (Japan)")
+    ticker_input = st.text_input("", value="NVDA", label_visibility="collapsed")
+    ticker = ticker_input.strip().upper()
         
     st.markdown("---")
     st.markdown("### 🧠 Forecasting Engine")
@@ -109,7 +105,7 @@ with st.sidebar:
         q = st.slider("Moving Average Order (q)", 0, 5, 1)
 
 # ==========================================
-# 3. FAST & BULLETPROOF DATA FUNCTIONS
+# 4. FAST & BULLETPROOF DATA FUNCTIONS
 # ==========================================
 @st.cache_data(ttl=3600)
 def fetch_historical_data(symbol):
@@ -128,9 +124,11 @@ def fetch_currency_info(symbol):
     """Fetches the currency code to dynamically update the UI symbols."""
     try:
         tkr = yf.Ticker(symbol)
-        return tkr.info.get('currency', 'USD')
+        info = tkr.info
+        # Try finding standard currency, fallback to financialCurrency, then default to USD if everything fails
+        return info.get('currency', info.get('financialCurrency', 'USD'))
     except Exception:
-        return 'USD' # Fallback
+        return 'USD'
 
 def optimize_arima(series):
     best_aic = float("inf")
@@ -166,17 +164,19 @@ def convert_df_to_csv(df):
     return df.to_csv(index=False).encode('utf-8')
 
 # ==========================================
-# 4. MAIN EXECUTION PIPELINE
+# 5. MAIN EXECUTION PIPELINE
 # ==========================================
 if ticker:
-    with st.spinner(f"Establishing secure connection & backtesting models for {ticker}..."):
+    with st.spinner(f"Establishing secure connection & extracting data for {ticker}..."):
         close_series = fetch_historical_data(ticker)
-        # Fetch dynamic currency string and symbol mapping
+        
+        # Determine exactly which currency this global stock uses
         currency_code = fetch_currency_info(ticker)
+        # Apply the symbol, or just use the code if it's an obscure currency
         curr_sym = CURRENCY_SYMBOLS.get(currency_code, f"{currency_code} ")
         
     if close_series.empty:
-        st.error(f"Failed to retrieve data for '{ticker}'. Please verify the symbol is active on Yahoo Finance.")
+        st.error(f"❌ Failed to retrieve data for '{ticker}'. Please ensure you are using the exact Yahoo Finance ticker (e.g., add '.NS' for India, '.L' for London).")
     else:
         historical_series = close_series.resample('W-FRI').mean().dropna()
         sma_10 = historical_series.rolling(window=10).mean()
@@ -227,7 +227,7 @@ if ticker:
                 growth_pct = ((future_price - current_price) / current_price) * 100
                 
                 # ==========================================
-                # 5. DASHBOARD UI RENDER (Updated with curr_sym)
+                # 6. DASHBOARD UI RENDER 
                 # ==========================================
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
@@ -241,7 +241,8 @@ if ticker:
                 
                 trend_status = "an upward bullish" if current_price > sma_40.iloc[-1] else "a downward bearish"
                 growth_dir = "grow" if growth_pct > 0 else "decline"
-                st.info(f"**💡 AI Executive Summary:** Based on backtested data, {ticker} is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach **{curr_sym}{future_price:,.2f}** by June 2027.")
+                
+                st.info(f"**💡 AI Executive Summary:** Based on backtested data, **{ticker}** is currently in {trend_status} macro trend. Using an ARIMA({p},{d},{q}) mathematical structure (which has historically proven **{accuracy_score:.1f}% accurate** on this asset), the algorithm projects the asset will {growth_dir} by **{abs(growth_pct):.1f}%** to reach **{curr_sym}{future_price:,.2f}** by June 2027.")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -266,7 +267,6 @@ if ticker:
                     fig1.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Actual Price", line=dict(color="#0f172a", width=2.5)))
                     fig1.add_trace(go.Scatter(x=forecast_values.index, y=forecast_values.values, name="Expected Baseline", line=dict(color="#3b82f6", width=3, dash='dash')))
                     
-                    # Updated yaxis_title to use dynamic currency code
                     fig1.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title=f"Asset Price ({currency_code})", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig1, use_container_width=True)
 
@@ -276,7 +276,7 @@ if ticker:
                     fig2.add_trace(go.Scatter(x=historical_series.index, y=historical_series.values, name="Asset Price", line=dict(color="#cbd5e1", width=1.5)))
                     fig2.add_trace(go.Scatter(x=sma_10.index, y=sma_10.values, name="10-Week SMA (Fast)", line=dict(color="#10b981", width=2)))
                     fig2.add_trace(go.Scatter(x=sma_40.index, y=sma_40.values, name="40-Week SMA (Macro)", line=dict(color="#ef4444", width=2)))
-                    # Updated yaxis_title
+                    
                     fig2.update_layout(template="plotly_white", xaxis_title="Market Timeline", yaxis_title=f"Asset Price ({currency_code})", hovermode="x unified", height=500, margin=dict(t=15, b=15))
                     st.plotly_chart(fig2, use_container_width=True)
                 
@@ -293,7 +293,6 @@ if ticker:
                     except Exception:
                         st.info("Insufficient historical tracking length to execute a full 52-week seasonal decomposition.")
 
-                # TAB 4: NEW PLOTLY TABLE DATA LEDGER
                 with tab4:
                     st.markdown('<div class="card"><h4 style="margin:0;">Target Analytical Dataframe</h4></div>', unsafe_allow_html=True)
                     
@@ -304,7 +303,6 @@ if ticker:
                         "Pessimistic Bound": lower_bound.values
                     })
                     
-                    # Plotly Table ensures perfect readability regardless of Streamlit theme
                     fig_table = go.Figure(data=[go.Table(
                         header=dict(
                             values=["<b>Target Date</b>", f"<b>Expected Price ({currency_code})</b>", "<b>High Risk Cap</b>", "<b>Low Risk Floor</b>"],
@@ -315,7 +313,6 @@ if ticker:
                         cells=dict(
                             values=[
                                 output_df["Target Date"].dt.strftime('%b %d, %Y'),
-                                # Applied the dynamic curr_sym to lambda formats
                                 output_df["Expected Target"].apply(lambda x: f"{curr_sym}{x:,.2f}"),
                                 output_df["Optimistic Bound"].apply(lambda x: f"{curr_sym}{x:,.2f}"),
                                 output_df["Pessimistic Bound"].apply(lambda x: f"{curr_sym}{x:,.2f}")
@@ -329,9 +326,8 @@ if ticker:
                     fig_table.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=400)
                     st.plotly_chart(fig_table, use_container_width=True)
                     
-                    # Ensure CSV downloads cleanly without HTML formatting
                     csv_bytes = convert_df_to_csv(output_df)
-                    st.download_button(label="📥 Download Formatted Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_deterministic_forecast_2027.csv", mime="text/csv")
+                    st.download_button(label="📥 Download Formatted Ledger (.csv)", data=csv_bytes, file_name=f"{ticker}_forecast_2027.csv", mime="text/csv")
                     
             except Exception as core_err:
                 st.error(f"Execution failed. System details: {str(core_err)}")
